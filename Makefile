@@ -1,5 +1,5 @@
 CC          = ncc
-CFLAGS      = -O3 -fopenmp -report-all -fdiag-vector=3 -fcse-after-vectorization  -msched-interblock
+CFLAGS      = -O2 -fopenmp -report-all -fdiag-vector=3 -fcse-after-vectorization  -msched-interblock
 
 
 DEBUG	?=0

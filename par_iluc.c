@@ -1,51 +1,5 @@
-#include "util/sparse_matrix.h"
-#include <cblas.h>
-#include <math.h>
+#include "par_iluc.h"
 #include <omp.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#define zero 0
-#define DEBUG 1
-#define MANUAL 1
-#define THD 0
-#define DEBUG_LEVEL 2
-
-#define debug_print(T_ID, ...)                                                 \
-  do {                                                                         \
-    if (DEBUG && (DEBUG_LEVEL > 1))                                            \
-      if ((T_ID) == THD)                                                       \
-        fprintf(stderr, __VA_ARGS__);                                          \
-      else                                                                     \
-        ;                                                                      \
-  } while (0)
-
-#if ((DEBUG > 0) && (DEBUG_LEVEL > 0))
-#define d_fprintf(fmt, args...)                                                \
-  fprintf(stderr, "DEBUG: %s:%d:%s(): " fmt, __FILE__, __LINE__, __func__,     \
-          ##args)
-#else
-#define d_fprintf(fmt, args...)
-#endif
-
-#define MAX(a, b) (((a) > (b)) ? (a) : (b))
-
-struct par_matrix {
-  int max_nnz_row;
-  int *ms_i;
-  int *ms_j;
-  int *act_rows;
-  int *ms_rows_freq;
-  int *ms_rhs_idx;
-  int *f_act_rows;
-  int *level_idx;
-  double *ms_data;
-  double *ms_vdata;
-};
-void print_csr_mat(const SparseMatrixCSR *csr_mat);
-void densify(const SparseMatrixCSR *csr_mat, float **dens_mat);
-void print_dens_mat(const int n, const int lda, const float *mat);
 
 int main(int argc, char *argv[]) {
 
@@ -65,13 +19,13 @@ int main(int argc, char *argv[]) {
 
   csr_mat.column_indices =
       (int[nnz]){0, 2, 4, 5, 10, 12, 1, 2, 3, 6, 9, 10, 11, 14, 0, 2, 8, 10, 1,
-                 3, 4, 9, 11, 15, 3, 4, 11, 12, 1, 2, 5, 6, 9, 10, 11, 14, 0, 1,
+                 3, 4, 9, 11, 15, 3, 4, 11, 12, 1, 2, 5, 6, 9, 10, 11, 14, 6, 7,
                  13, 14, 4, 5, 7, 9, 13, 15,
                  /**LOWER*/
                  0, 2, 4, 8, 10, 12, 1, 2, 3, 7, 9, 10, 11, 14, 0, 2, 8, 11, 1,
                  3, 4, 9, 10, 12, 3, 4, 11, 12, 1, 2, 5, 6, 9, 10, 11, 14, 5, 6,
                  13, 14, 4, 5, 7, 11, 12, 15};
-  csr_mat.values = (double *)malloc(sizeof(double) * nnz);
+  csr_mat.values = (float *)malloc(sizeof(float) * nnz);
 
   for (i = 0; i < n; i++) {
     for (jj = csr_mat.row_pointers[i]; jj < csr_mat.row_pointers[i + 1]; jj++) {
@@ -115,7 +69,7 @@ int main(int argc, char *argv[]) {
   int n, nnz;
   // int *A_diag_i;
   // int *A_diag_j;
-  // double *A_diag_data;
+  // float *A_diag_data;
 
   /* Parse command line */
   int arg_index = 0;
@@ -144,11 +98,11 @@ int main(int argc, char *argv[]) {
 
 #endif
 
-  double *u_data, *su_data;
-  double *f_data;
-  u_data = (double *)malloc(sizeof(double) * n);
-  su_data = (double *)malloc(sizeof(double) * n);
-  f_data = (double *)malloc(sizeof(double) * n);
+  float *u_data, *su_data;
+  float *f_data;
+  u_data = (float *)malloc(sizeof(float) * n);
+  su_data = (float *)malloc(sizeof(float) * n);
+  f_data = (float *)malloc(sizeof(float) * n);
 
   for (i = 0; i < n; i++) {
     // u_data[i] = 1.0;
@@ -178,6 +132,8 @@ int main(int argc, char *argv[]) {
   const size_t nbytes = sizeof(float) * csr_mat.nrows * csr_mat.ncolumns;
   mat2 = (float *)malloc(nbytes);
   memcpy(mat2, mat1, nbytes);
+
+  LU_fac_2(csr_mat.nrows , csr_mat.ncolumns, mat1);
 
   print_dens_mat(csr_mat.nrows, csr_mat.ncolumns, mat1);
   // free factorized matrices
@@ -266,37 +222,38 @@ void print_csr_mat(const SparseMatrixCSR *csr_mat) {
     fprintf(stderr, "\n");
   }
 }
-
-void LU_fac(const int n, const int lda, double *const mat) {
-
-  for (int k = 0; k < n - 1; ++k) {
-    int i = k + 1;
-    int j = i;
-    int cnt = n - j;
-    cblas_dscal((n - i), 1 / mat[k * lda + k], &mat[i * lda + k], lda);
+// #ifdef __INTEL_COMPILER
+void LU_fac(const int n, const int lda, float *const mat) {
+int i, j, k, cnt;
+  for ( k = 0; k < n - 1; ++k) {
+    i = k + 1;
+    j = i;
+    cnt = n - j;
+    cblas_sscal((n - i), 1 / mat[k * lda + k], &mat[i * lda + k], lda);
 
 #pragma omp parallel for shared(mat)
     for (; i < n; i++) {
-      cblas_daxpy(cnt, -1 * mat[i * lda + k], &mat[k * lda + j], 1,
+      cblas_saxpy(cnt, -1 * mat[i * lda + k], &mat[k * lda + j], 1,
                   &mat[i * lda + j], 1);
     }
   }
 }
-
-void LU_fac_2(const int n, const int lda, double *const mat) {
-  for (int k = 0; k < n; k++) {
-    int i = k + 1;
-    double kk = mat[k * lda + k];
+void LU_fac_2(const int n, const int lda, float *const mat) {
+  int i, j, k;
+  for ( k = 0; k < n; k++) {
+     i = k + 1;
+    float kk = mat[k * lda + k];
 #pragma omp parallel for shared(mat) /*default(none) schedule(static, 8) */
     for (; i < n; i++) {
       mat[i * lda + k] = mat[i * lda + k] / kk;
-      double ik = mat[i * lda + k];
-#pragma simd
+      float ik = mat[i * lda + k];
+#pragma omp simd
 #pragma ivdep
 #pragma unroll(16)
-      for (int j = k + 1; j < n; j++) {
+      for ( j = k + 1; j < n; j++) {
         mat[i * lda + j] -= ik * mat[k * lda + j];
       }
     }
   }
 }
+// #endif

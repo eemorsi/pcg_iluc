@@ -19,7 +19,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-typedef double elem_t;
+typedef float elem_t;
 
 enum MatrixFormat
 {
@@ -34,7 +34,7 @@ enum MatrixFormat
 struct SparseMatrixCSR_STRUCT
 {
     char *name;
-    double *values; // values of matrix entries
+    float *values; // values of matrix entries
     int *column_indices;
     int *row_pointers;
     int nrows;
@@ -58,7 +58,7 @@ typedef struct SparseMatrixELLPACK_STRUCT SparseMatrixELLPACK;
 struct SparseMatrixCOO_STRUCT
 {
     char *name;
-    double *values;  // values of matrix entries
+    float *values;  // values of matrix entries
     int *rows;    // row_index
     int *columns; // col_index
     int nrows;
