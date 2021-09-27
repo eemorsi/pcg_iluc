@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cblas.h>
 
 #define zero 0
 #define DEBUG 1
@@ -43,7 +44,8 @@ struct par_matrix {
   double *ms_vdata;
 };
 void print_csr_mat(const SparseMatrixCSR *csr_mat);
-void densify(const SparseMatrixCSR *csr_mat, float *dens_mat);
+void densify(const SparseMatrixCSR *csr_mat, float **dens_mat);
+void print_dens_mat(const int n, const int lda, const float* mat);
 
 int main(int argc, char *argv[]) {
 
@@ -56,6 +58,7 @@ int main(int argc, char *argv[]) {
   const int nnz = 23 * 4;
   csr_mat.nnz = nnz;
   csr_mat.nrows = n;
+  csr_mat.ncolumns = n;
 
   csr_mat.row_pointers = (int[n + 1]){0,  6,  14, 18, 24, 28, 36, 40, 46,
                                       52, 60, 64, 70, 74, 82, 86, 92};
@@ -158,10 +161,11 @@ int main(int argc, char *argv[]) {
 
   const int num_threads = omp_get_max_threads();
 
+
+
   // struct par_mat *A_diag =
   //     (struct par_mat *)malloc(sizeof(struct par_mat));
 
-// schedule levels (forward & backward sbustitutions)
 #if (DEBUG && DEBUG_LEVEL > 3)
   fprintf(stderr, "u_data\n");
   for (i = 0; i < n; i++) {
@@ -171,6 +175,16 @@ int main(int argc, char *argv[]) {
 #endif
   // perform iluc operation
 
+float *mat1, *mat2; 
+densify(&csr_mat, &mat1);
+const size_t nbytes=sizeof(float)*csr_mat.nrows*csr_mat.ncolumns;
+mat2 = (float*)malloc(nbytes);
+memcpy(mat2, mat1, nbytes);
+
+print_dens_mat(csr_mat.nrows,csr_mat.ncolumns, mat1);
+// free factorized matrices
+free(mat1);
+free(mat2);
   // free result arrays
   free(u_data);
   free(f_data);
@@ -190,24 +204,40 @@ void ser_iluc(const SparseMatrixCSR *csr_mat, SparseMatrixCSR *U,
  * @param csr_mat
  * @param dens_mat
  */
-void densify(const SparseMatrixCSR *csr_mat, float *dens_mat) {
+void densify(const SparseMatrixCSR *csr_mat, float **dens_mat) {
 
   const size_t n = csr_mat->nrows;
-  const size_t n2 = n * n;
+  const size_t lda=csr_mat->ncolumns;
+  const size_t n2 = n * lda;
   int i, j, jj, idx;
 
-  dens_mat = (float *)malloc(sizeof(float) * n2);
-  memset(dens_mat, 0, sizeof(float) * n2);
+  *dens_mat = (float *)malloc(sizeof(float) * n2);
+  memset((*dens_mat), 0, sizeof(float) * n2);
 
   for (i = 0; i < n; i++) {
     for (j = csr_mat->row_pointers[i]; j < csr_mat->row_pointers[i + 1]; j++) {
       jj = csr_mat->column_indices[j];
-      idx = i * n + jj;
-      dens_mat[idx] = csr_mat->values[j];
+      idx = i * lda + jj;
+      (*dens_mat)[idx] = csr_mat->values[j];
     }
   }
 }
 
+void print_dens_mat(const int n, const int lda, const float* mat){
+int i, j;
+for (i = 0; i < lda; i++) {
+    fprintf(stderr, "%4d  ", i);
+  }
+  fprintf(stderr, "\n");
+
+for(i=0; i<n; i++){
+  fprintf(stderr, "%2d: ", i);
+  for (j=0; j<lda; j++){
+fprintf(stderr, "%4.0f, ", mat[i*lda+j]);
+  }
+  fprintf(stderr, "\n");
+}
+}
 void print_csr_mat(const SparseMatrixCSR *csr_mat) {
   const size_t n = csr_mat->nrows;
   size_t i, ii, j, jj;
@@ -237,4 +267,42 @@ void print_csr_mat(const SparseMatrixCSR *csr_mat) {
     }
     fprintf(stderr, "\n");
   }
+}
+
+void LU_fac(const int n, const int lda, double* const mat) {
+
+	for (int k = 0; k < n - 1; ++k) {
+		int i = k + 1;
+		int j = i;
+		int cnt = n - j;
+		cblas_dscal((n - i), 1 / mat[k * lda + k], &mat[i * lda + k],
+				lda);
+
+#pragma omp parallel for shared(mat)
+		for (; i < n; i++) {
+			cblas_daxpy(cnt, -1 * mat[i * lda + k], &mat[k * lda + j], 1,
+					&mat[i * lda + j], 1);
+
+		}
+	}
+
+}
+
+
+void LU_fac_2(const int n, const int lda, double* const mat) {
+	for (int k = 0; k < n; k++) {
+		int i = k + 1;
+		double kk = mat[k * lda + k];
+#pragma omp parallel for shared(mat) /*default(none) schedule(static, 8) */
+		for (; i < n; i++) {
+			mat[i * lda + k] = mat[i * lda + k] / kk;
+			double ik = mat[i * lda + k];
+#pragma simd
+#pragma ivdep
+#pragma unroll(16)
+			for (int j = k + 1; j < n; j++) {
+				mat[i * lda + j] -= ik * mat[k * lda + j];
+			}
+		}
+	}
 }

@@ -7,7 +7,7 @@ ifeq ($(DEBUG), 1)
 CFLAGS	+=	-g -traceback=verbose
 endif
 
-BLAS		= -L/opt/nec/ve/nlc/2.3.0/lib/ -lblas_openmp -lsblas_openmp 
+BLAS		= -L/opt/nec/ve/nlc/2.3.0/lib/ -lblas_openmp -lsblas_openmp  -lcblas -fopenmp
 LIBS		=  ${BLAS} ${LAPACK} -lasl_openmp
 
 COM_SRCS := mmio.c sparse_matrix.c 
