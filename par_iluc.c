@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
                  0, 2, 4, 8, 10, 12, 1, 2, 3, 7, 9, 10, 11, 14, 0, 2, 8, 11, 1,
                  3, 4, 9, 10, 12, 3, 4, 11, 12, 1, 2, 5, 6, 9, 10, 11, 14, 5, 6,
                  13, 14, 4, 5, 7, 11, 12, 15};
-  csr_mat.values = (float *)malloc(sizeof(float) * nnz);
+  csr_mat.values = (elem_t *)malloc(sizeof(elem_t) * nnz);
 
   for (i = 0; i < n; i++) {
     for (jj = csr_mat.row_pointers[i]; jj < csr_mat.row_pointers[i + 1]; jj++) {
@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
   int n, nnz;
   // int *A_diag_i;
   // int *A_diag_j;
-  // float *A_diag_data;
+  // elem_t *A_diag_data;
 
   /* Parse command line */
   int arg_index = 0;
@@ -98,11 +98,11 @@ int main(int argc, char *argv[]) {
 
 #endif
 
-  float *u_data, *su_data;
-  float *f_data;
-  u_data = (float *)malloc(sizeof(float) * n);
-  su_data = (float *)malloc(sizeof(float) * n);
-  f_data = (float *)malloc(sizeof(float) * n);
+  elem_t *u_data, *su_data;
+  elem_t *f_data;
+  u_data = (elem_t *)malloc(sizeof(elem_t) * n);
+  su_data = (elem_t *)malloc(sizeof(elem_t) * n);
+  f_data = (elem_t *)malloc(sizeof(elem_t) * n);
 
   for (i = 0; i < n; i++) {
     // u_data[i] = 1.0;
@@ -127,13 +127,13 @@ int main(int argc, char *argv[]) {
 #endif
   // perform iluc operation
 
-  float *mat1, *mat2;
+  elem_t *mat1, *mat2;
   densify(&csr_mat, &mat1);
-  const size_t nbytes = sizeof(float) * csr_mat.nrows * csr_mat.ncolumns;
-  mat2 = (float *)malloc(nbytes);
-  memcpy(mat2, mat1, nbytes);
+  const size_t nbytes = sizeof(elem_t) * csr_mat.nrows * csr_mat.ncolumns;
+  // mat2 = (elem_t *)malloc(nbytes);
+  // memcpy(mat2, mat1, nbytes);
 
-  LU_fac_2(csr_mat.nrows , csr_mat.ncolumns, mat1);
+  // LU_fac(csr_mat.nrows, csr_mat.ncolumns, mat1);
 
   print_dens_mat(csr_mat.nrows, csr_mat.ncolumns, mat1);
   // free factorized matrices
@@ -148,6 +148,60 @@ int main(int argc, char *argv[]) {
 void ser_iluc(const SparseMatrixCSR *csr_mat, SparseMatrixCSR *U,
               SparseMatrixCSR *L) {}
 
+#ifdef __INTEL_COMPILER
+/*---------------------------------------------------------------------------
+/* Calculate ILU0 preconditioner.
+/*                      !ATTENTION!
+/* DCSRILU0 routine uses some IPAR, DPAR set by DFGMRES_INIT routine.
+/* Important for DCSRILU0 default entries set by DFGMRES_INIT are
+/* ipar[1] = 6 - output of error messages to the screen,
+/* ipar[5] = 1 - allow output of errors,
+/* ipar[30]= 0 - abort DCSRILU0 calculations if routine meets zero diagonal
+element.
+/*
+/* If ILU0 is going to be used out of MKL FGMRES context, than the values
+/* of ipar[1], ipar[5], ipar[30], dpar[30], and dpar[31] should be user
+/* provided before the DCSRILU0 routine call.
+/*
+/* In this example, specific for DCSRILU0 entries are set in turn:
+/* ipar[30]= 1 - change small diagonal value to that given by dpar[31],
+/* dpar[30]= 1.E-20 instead of the default value set by DFGMRES_INIT.
+/*                  It is a small value to compare a diagonal entry with it.
+/* dpar[31]= 1.E-16 instead of the default value set by DFGMRES_INIT.
+/*                  It is the target value of the diagonal value if it is
+/*                  small as compared to dpar[30] and the routine should change
+/*                  it rather than abort DCSRILU0 calculations.
+/*---------------------------------------------------------------------------*/
+
+void mkl_dcsrilu0(const SparseMatrixCSR *csr_mat) {
+
+#define size 128
+
+  const size_t N = csr_mat.nrows;
+  MKL_INT ipar[size];
+  elem_t dpar[size], tmp[N * (2 * N + 1) + (N * (N + 9)) / 2 + 1];
+  elem_t trvec[N], bilu0[csr_mat.nnz];
+  elem_t expected_solution[N];
+  elem_t rhs[N], b[N];
+  elem_t computed_solution[N];
+  elem_t residual[N];
+
+  MKL_INT matsize = 12, incx = 1, ref_nit = 2;
+  double ref_norm2 = 7.772387E+0, nrm2;
+
+  ipar[30] = 1;
+  dpar[30] = 1.E-20;
+  dpar[31] = 1.E-16;
+
+  dcsrilu0(&ivar, A, ia, ja, bilu0, ipar, dpar, &ierr);
+  nrm2 = dnrm2(&matsize, bilu0, &incx);
+
+  if (ierr != 0) {
+    printf("Preconditioner dcsrilu0 has returned the ERROR code %d", ierr);
+    goto FAILED1;
+  }
+}
+#endif
 /****************************************************************
  * Util functions
  ***************************************************************/
@@ -158,15 +212,15 @@ void ser_iluc(const SparseMatrixCSR *csr_mat, SparseMatrixCSR *U,
  * @param csr_mat
  * @param dens_mat
  */
-void densify(const SparseMatrixCSR *csr_mat, float **dens_mat) {
+void densify(const SparseMatrixCSR *csr_mat, elem_t **dens_mat) {
 
   const size_t n = csr_mat->nrows;
   const size_t lda = csr_mat->ncolumns;
   const size_t n2 = n * lda;
   int i, j, jj, idx;
 
-  *dens_mat = (float *)malloc(sizeof(float) * n2);
-  memset((*dens_mat), 0, sizeof(float) * n2);
+  *dens_mat = (elem_t *)malloc(sizeof(elem_t) * n2);
+  memset((*dens_mat), 0, sizeof(elem_t) * n2);
 
   for (i = 0; i < n; i++) {
     for (j = csr_mat->row_pointers[i]; j < csr_mat->row_pointers[i + 1]; j++) {
@@ -177,7 +231,7 @@ void densify(const SparseMatrixCSR *csr_mat, float **dens_mat) {
   }
 }
 
-void print_dens_mat(const int n, const int lda, const float *mat) {
+void print_dens_mat(const int n, const int lda, const elem_t *mat) {
   int i, j;
   for (i = 0; i < lda; i++) {
     fprintf(stderr, "%4d  ", i);
@@ -223,34 +277,34 @@ void print_csr_mat(const SparseMatrixCSR *csr_mat) {
   }
 }
 // #ifdef __INTEL_COMPILER
-void LU_fac(const int n, const int lda, float *const mat) {
-int i, j, k, cnt;
-  for ( k = 0; k < n - 1; ++k) {
+void LU_fac(const int n, const int lda, elem_t *const mat) {
+  int i, j, k, cnt;
+  for (k = 0; k < n - 1; ++k) {
     i = k + 1;
     j = i;
     cnt = n - j;
-    cblas_sscal((n - i), 1 / mat[k * lda + k], &mat[i * lda + k], lda);
+    cblas_dscal((n - i), 1 / mat[k * lda + k], &mat[i * lda + k], lda);
 
 #pragma omp parallel for shared(mat)
     for (; i < n; i++) {
-      cblas_saxpy(cnt, -1 * mat[i * lda + k], &mat[k * lda + j], 1,
+      cblas_daxpy(cnt, -1 * mat[i * lda + k], &mat[k * lda + j], 1,
                   &mat[i * lda + j], 1);
     }
   }
 }
-void LU_fac_2(const int n, const int lda, float *const mat) {
+void LU_fac_2(const int n, const int lda, elem_t *const mat) {
   int i, j, k;
-  for ( k = 0; k < n; k++) {
-     i = k + 1;
-    float kk = mat[k * lda + k];
+  for (k = 0; k < n; k++) {
+    i = k + 1;
+    elem_t kk = mat[k * lda + k];
 #pragma omp parallel for shared(mat) /*default(none) schedule(static, 8) */
     for (; i < n; i++) {
       mat[i * lda + k] = mat[i * lda + k] / kk;
-      float ik = mat[i * lda + k];
+      elem_t ik = mat[i * lda + k];
 #pragma omp simd
 #pragma ivdep
 #pragma unroll(16)
-      for ( j = k + 1; j < n; j++) {
+      for (j = k + 1; j < n; j++) {
         mat[i * lda + j] -= ik * mat[k * lda + j];
       }
     }

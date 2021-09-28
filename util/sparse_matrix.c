@@ -94,7 +94,7 @@ void fast_load_from_mtx_file(const char *mtx_filepath, SparseMatrixCOO *coo_matr
         coo_matrix->columns = (int *)malloc(max_entries * sizeof(int));
         // check_mem_alloc(coo_matrix->columns, "coo cols");
 
-        coo_matrix->values = (float *)malloc(max_entries * sizeof(float));
+        coo_matrix->values = (elem_t *)malloc(max_entries * sizeof(elem_t));
         // check_mem_alloc(coo_matrix->values, "coo values");
 
         // Load Symmetric MTX, note that COO might be unordered.
@@ -160,7 +160,7 @@ void fast_load_from_mtx_file(const char *mtx_filepath, SparseMatrixCOO *coo_matr
         coo_matrix->columns = (int *)malloc(mtx_entries * sizeof(int));
         // check_mem_alloc(coo_matrix->columns, "coo cols");
 
-        coo_matrix->values = (float *)malloc(mtx_entries * sizeof(float));
+        coo_matrix->values = (elem_t *)malloc(mtx_entries * sizeof(elem_t));
         // check_mem_alloc(coo_matrix->values, "coo values");
 
         if (!mm_is_pattern(matcode))
@@ -218,7 +218,7 @@ void sort_coo_row(const SparseMatrixCOO *coo_matrix,
       (int *)aligned_alloc(align_size, sizeof(int) * coo_matrix->nnz);
 
   s_coo_matrix->values =
-      (float *)aligned_alloc(align_size, sizeof(float) * coo_matrix->nnz);
+      (elem_t *)aligned_alloc(align_size, sizeof(elem_t) * coo_matrix->nnz);
   s_coo_matrix->rows =
       (int *)aligned_alloc(align_size, sizeof(int) * coo_matrix->nnz);
 
@@ -278,7 +278,7 @@ void sort_coo_row(const SparseMatrixCOO *coo_matrix,
     // printf("%d -> %d\n", i, freq[i]);
   }
   s_coo_matrix->values =
-      (float *)aligned_alloc(align_size, sizeof(float) * coo_matrix->nnz);
+      (elem_t *)aligned_alloc(align_size, sizeof(elem_t) * coo_matrix->nnz);
   s_coo_matrix->rows =
       (int *)aligned_alloc(align_size, sizeof(int) * coo_matrix->nnz);
   s_coo_matrix->columns =
@@ -324,7 +324,7 @@ void convert_coo_to_csr(const SparseMatrixCOO *coo_matrix, SparseMatrixCSR *csr_
     csr_matrix->column_indices = (int *)malloc(coo_matrix->nnz * sizeof(int));
     // check_mem_alloc(csr_matrix->column_indices, "SparseMatrixCSR.column_indices");
 
-    csr_matrix->values = (float *)malloc(coo_matrix->nnz * sizeof(float));
+    csr_matrix->values = (elem_t *)malloc(coo_matrix->nnz * sizeof(elem_t));
     // check_mem_alloc(csr_matrix->values, "SparseMatrixCSR.values");
 
     // Store the number of Non-Zero elements in each Row
@@ -354,7 +354,7 @@ void convert_coo_to_csr(const SparseMatrixCOO *coo_matrix, SparseMatrixCSR *csr_
     {
         int row_index = coo_matrix->rows[i];
         int column_index = coo_matrix->columns[i];
-        float value = coo_matrix->values[i];
+        elem_t value = coo_matrix->values[i];
 
         int j = csr_matrix->row_pointers[row_index];
         csr_matrix->column_indices[j] = column_index;
