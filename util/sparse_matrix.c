@@ -26,6 +26,50 @@
 #endif
 
 #define align_size 128
+void fast_load_from_array_file(const char *mtx_filepath, elem_ptr *vals) {
+
+  int ret_code;
+  unsigned int m, n;
+
+  FILE *f;
+  MM_typecode matcode;
+
+  if ((f = fopen(mtx_filepath, "r")) == NULL) {
+    fprintf(stderr, "Could not open file: %s \n", mtx_filepath);
+    exit(1);
+  }
+
+  if (mm_read_banner(f, &matcode) != 0) {
+    fprintf(stderr, "Could not process Matrix Market banner.\n");
+    exit(1);
+  }
+
+  /*
+      This code, will only work with MTX containing: REAL number, Sparse,
+     Matrices. Throws an error otherwise. See mmio.h for more information.
+  */
+  if (!(mm_is_real(matcode)) && !(mm_is_array(matcode))) {
+    fprintf(stderr, "Market Market type: [%s] not array\n",
+            mm_typecode_to_str(matcode));
+    exit(1);
+  }
+
+  if (ret_code = mm_read_mtx_array_size(f, &m, &n) != 0) {
+    fprintf(stderr, "Error while reading matrix dimension sizes.\n");
+    exit(1);
+  }
+
+  *vals = (elem_ptr)aligned_alloc(align_size, m * sizeof(elem_t));
+
+  printf("Number of allocated elements %d\n", m);
+  elem_t tmp;
+  unsigned int i ;
+  for (i = 0; i < m; i++) {
+    fscanf(f, "%lg\n", &tmp);
+      (*vals)[i] = tmp;
+  }
+}
+
 /* 
     Loads a Sparse Matrix from a .MTX file format
     into a SparseMatrixCOO data structure.

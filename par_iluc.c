@@ -1,11 +1,14 @@
 #include "par_iluc.h"
+#include "util/sparse_matrix.h"
 #include <omp.h>
+#include <stdlib.h>
 
 int main(int argc, char *argv[]) {
 
   size_t i, ii, jj, j, m;
   size_t t_id, size, rest, ne, ns, inc;
   SparseMatrixCSR csr_mat;
+  elem_ptr rhs;
 
 #if MANUAL
   const int n = 8 * 2;
@@ -25,7 +28,8 @@ int main(int argc, char *argv[]) {
                  0, 2, 4, 8, 10, 12, 1, 2, 3, 7, 9, 10, 11, 14, 0, 2, 8, 11, 1,
                  3, 4, 9, 10, 12, 3, 4, 11, 12, 1, 2, 5, 6, 9, 10, 11, 14, 5, 6,
                  13, 14, 4, 5, 7, 11, 12, 15};
-  csr_mat.values = (elem_t *)malloc(sizeof(elem_t) * nnz);
+  csr_mat.values = (elem_ptr)malloc(sizeof(elem_t) * nnz);
+  rhs = (elem_ptr)malloc(sizeof(elem_t) * n);
 
   for (i = 0; i < n; i++) {
     for (jj = csr_mat.row_pointers[i]; jj < csr_mat.row_pointers[i + 1]; jj++) {
@@ -66,6 +70,7 @@ int main(int argc, char *argv[]) {
 
 #else
   char *mtx_filepath;
+  char *rhs_filepath;
   int n, nnz;
   // int *A_diag_i;
   // int *A_diag_j;
@@ -77,6 +82,9 @@ int main(int argc, char *argv[]) {
     if (strcmp(argv[arg_index], "-mtx") == 0) {
       arg_index++;
       mtx_filepath = argv[arg_index++];
+    } else if (strcmp(argv[arg_index], "-rhs") == 0) {
+      arg_index++;
+      rhs_filepath = argv[arg_index++];
     } else {
       arg_index++;
     }
@@ -98,51 +106,48 @@ int main(int argc, char *argv[]) {
 
 #endif
 
-  elem_t *u_data, *su_data;
-  elem_t *f_data;
-  u_data = (elem_t *)malloc(sizeof(elem_t) * n);
-  su_data = (elem_t *)malloc(sizeof(elem_t) * n);
-  f_data = (elem_t *)malloc(sizeof(elem_t) * n);
+  // elem_t *u_data, *su_data;
+  // elem_t *f_data;
+  // u_data = (elem_t *)malloc(sizeof(elem_t) * n);
+  // su_data = (elem_t *)malloc(sizeof(elem_t) * n);
+  // f_data = (elem_t *)malloc(sizeof(elem_t) * n);
 
-  for (i = 0; i < n; i++) {
-    // u_data[i] = 1.0;
-    // su_data[i] = 1.0;
-    // f_data[i] = 1.0;
-    u_data[i] = i + 0.1;
-    su_data[i] = i + 0.1;
-    f_data[i] = i + 0.1;
-  }
+  // for (i = 0; i < n; i++) {
+  //   // u_data[i] = 1.0;
+  //   // su_data[i] = 1.0;
+  //   // f_data[i] = 1.0;
+  //   u_data[i] = i + 0.1;
+  //   su_data[i] = i + 0.1;
+  //   f_data[i] = i + 0.1;
+  // }
 
   const int num_threads = omp_get_max_threads();
 
   // struct par_mat *A_diag =
   //     (struct par_mat *)malloc(sizeof(struct par_mat));
 
-#if (DEBUG && DEBUG_LEVEL > 3)
-  fprintf(stderr, "u_data\n");
-  for (i = 0; i < n; i++) {
-    fprintf(stderr, "%0.3f, ", u_data[i]);
-  }
-  fprintf(stderr, "\n");
-#endif
   // perform iluc operation
-
-  elem_t *mat1, *mat2;
-  densify(&csr_mat, &mat1);
-  const size_t nbytes = sizeof(elem_t) * csr_mat.nrows * csr_mat.ncolumns;
+  fprintf(stderr, "csr_mat.nrows=%d\t csr_mat.ncolumns=%d\t csr_mat.nnz=%d\n",
+          csr_mat.nrows, csr_mat.ncolumns, csr_mat.nnz);
+  // elem_t *mat1, *mat2;
+  // densify(&csr_mat, &mat1);
+  //   print_dens_mat(csr_mat.nrows, csr_mat.ncolumns, mat1);
+  // const size_t nbytes = sizeof(elem_t) * csr_mat.nrows * csr_mat.ncolumns;
   // mat2 = (elem_t *)malloc(nbytes);
   // memcpy(mat2, mat1, nbytes);
+  elem_t *ilu0 = (elem_t *)malloc(sizeof(elem_t) * csr_mat.nnz);
 
+  mkl_dcsrilu0(&csr_mat, rhs, &ilu0);
   // LU_fac(csr_mat.nrows, csr_mat.ncolumns, mat1);
 
-  print_dens_mat(csr_mat.nrows, csr_mat.ncolumns, mat1);
   // free factorized matrices
-  free(mat1);
-  free(mat2);
+  free(ilu0);
+  // free(mat1);
+  // free(mat2);
   // free result arrays
-  free(u_data);
-  free(f_data);
-  free(su_data);
+  // free(u_data);
+  // free(f_data);
+  // free(su_data);
 }
 
 void ser_iluc(const SparseMatrixCSR *csr_mat, SparseMatrixCSR *U,
@@ -173,32 +178,52 @@ element.
 /*                  it rather than abort DCSRILU0 calculations.
 /*---------------------------------------------------------------------------*/
 
-void mkl_dcsrilu0(const SparseMatrixCSR *csr_mat) {
+void mkl_dcsrilu0(const SparseMatrixCSR *csr_mat, elem_ptr rhs,
+                  elem_ptr *ilu0) {
 
 #define size 128
 
-  const size_t N = csr_mat.nrows;
-  MKL_INT ipar[size];
-  elem_t dpar[size], tmp[N * (2 * N + 1) + (N * (N + 9)) / 2 + 1];
-  elem_t trvec[N], bilu0[csr_mat.nnz];
-  elem_t expected_solution[N];
-  elem_t rhs[N], b[N];
-  elem_t computed_solution[N];
-  elem_t residual[N];
+  const size_t N = csr_mat->nrows;
 
-  MKL_INT matsize = 12, incx = 1, ref_nit = 2;
-  double ref_norm2 = 7.772387E+0, nrm2;
+  int ipar[size];
+  int itercount, ierr = 0;
+  int RCI_request, i, ivar;
+  elem_t dvar;
+  char cvar;
 
-  ipar[30] = 1;
+  elem_t dpar[size];
+  elem_ptr tmp;
+  elem_ptr x0;
+  // elem_ptr rhs;
+
+  tmp = (elem_ptr)malloc(sizeof(elem_t) *
+                         (N * (2 * N + 1) + (N * (N + 9)) / 2 + 1));
+  // elem_t trvec[N], bilu0[csr_mat->nnz];
+  // elem_t expected_solution[N];
+  // elem_t rhs[N], b[N];
+  x0 = (elem_ptr)malloc(sizeof(elem_t) * N);
+  // rhs = (elem_ptr)malloc(sizeof(elem_t) * N);
+  // elem_t residual[N];
+
+  ivar = N;
+
+  for (i = 0; i < N; i++) {
+    x0[i] = 0;
+    rhs[i] = 1;
+  }
+
+  dfgmres_init(&ivar, x0, rhs, &RCI_request, ipar, dpar, tmp);
+  ipar[1] = 6;  // output of error messages to the screen
+  ipar[5] = 1;  // allow output of errors
+  ipar[30] = 1; // abort DCSRILU0 calculations if routine meets zero diagonal
   dpar[30] = 1.E-20;
   dpar[31] = 1.E-16;
 
-  dcsrilu0(&ivar, A, ia, ja, bilu0, ipar, dpar, &ierr);
-  nrm2 = dnrm2(&matsize, bilu0, &incx);
+  dcsrilu0(&ivar, csr_mat->values, csr_mat->row_pointers,
+           csr_mat->column_indices, *ilu0, ipar, dpar, &ierr);
 
   if (ierr != 0) {
     printf("Preconditioner dcsrilu0 has returned the ERROR code %d", ierr);
-    goto FAILED1;
   }
 }
 #endif

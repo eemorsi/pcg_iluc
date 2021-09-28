@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 typedef double elem_t;
+typedef double* elem_ptr;
 
 enum MatrixFormat
 {
@@ -68,6 +69,7 @@ struct SparseMatrixCOO_STRUCT
 typedef struct SparseMatrixCOO_STRUCT SparseMatrixCOO;
 
 // void load_from_mtx_file(const char *mtx_filepath, SparseMatrixCOO *coo_matrix);
+void fast_load_from_array_file(const char *mtx_filepath, elem_ptr *vals);
 void fast_load_from_mtx_file(const char *mtx_filepath, SparseMatrixCOO *coo_matrix);
 void convert_coo_to_csr(const SparseMatrixCOO *coo_matrix, SparseMatrixCSR *csr_matrix, int free_coo);
 void sort_coo_row(const SparseMatrixCOO *coo_matrix,
